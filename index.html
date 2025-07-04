@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Bild-Tabelle mit seal_id</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f0f0f0; }
+
+    /* HIER: Zellen mit Platzhalter farbig hervorheben */
+    td.placeholder {
+      background-color: #ffe5e5; /* hellrot */
+      color: #900;               /* dunkler Text */
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <h1>Hasty JSON Import</h1>
+  <form id="data-form" style="margin-bottom: 2rem;">
+    <label for="jsonFile">JSON-Datei auswählen:</label>
+    <input type="file" id="jsonFile" accept=".json" required>
+    <br><br>
+    <label for="elementStartId">Startwert für pictureelement ID:</label>
+    <input type="number" id="elementStartId" value="1" min="1" required>
+    <br><br>
+    <button type="submit">Verarbeiten</button>
+  </form>
+  <hr>
+  <hr>
+  <h2>3_pictureelement</h2>
+  <table id="pictureelement-table">
+    <thead>
+      <tr>
+        <th>id</th>
+        <th>seal_id</th>
+        <th>class_name</th>
+        <th>type_class</th>
+        <th>hasty_id</th>
+        <th>bbox</th>
+        <th>polygon</th>
+        <th>mask</th>
+        <th>sequence</th>
+        <th>comments</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>3_pictelattributes</h2>
+  <table id="pictelattributes-table">
+    <thead>
+      <tr>
+        <th>id</th>
+        <th>picElID</th>
+        <th>vocabCategory</th>
+        <th>vocabCategoryID</th>
+        <th>vocabAttribute</th>
+        <th>vocabAttributeID</th>
+        <th>vocabSpecification</th>
+        <th>vocabSpecificationID</th>
+        <th>hasty_id</th>
+        <th>comments</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    // Normalisiert Dateinamen
+    function normalizeFilename(filename) {
+      if (!filename) return '';
+      return filename.trim().toLowerCase().replace(/\s+/g, '_');
+    }
+
+    // CSV Parser
+    function parseCSV(csvText) {
+      const lines = csvText.trim().split(/\r?\n/);
+      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+      return lines.slice(1).map(line => {
+        const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+        const obj = {};
+        headers.forEach((header, i) => {
+          obj[header] = values[i];
+        });
+        return obj;
+      });
+    }
+
+    // Neue Tabelle: pictelattributes
+    function renderPictelAttributesTable(images, picElIDs) {
+      const pictelAttrBody = document.querySelector('#pictelattributes-table tbody');
+      if (!pictelAttrBody) return;
+      pictelAttrBody.innerHTML = '';
+
+      let attrRowCounter = 1;
+
+      function extractValues(val) {
+        if (Array.isArray(val)) {
+          return val.map(v => typeof v === 'string' ? v.trim() : JSON.stringify(v));
+        } else if (typeof val === 'string') {
+          return [val.trim()];
+        } else if (val !== null && val !== undefined) {
+          return [val.toString()];
+        } else {
+          return [];
+        }
+      }
+
+      function makeAttrCell(content) {
+        const cell = document.createElement('td');
+        cell.textContent = content ?? '—';
+        if (cell.textContent === '—') {
+          cell.classList.add('placeholder');
+        }
+        return cell;
+      }
+
+      let labelIndex = 0;
+      images.forEach(image => {
+        image.labels?.forEach(label => {
+          const attributes = label.attributes;
+
+          if (typeof attributes === 'object' && !Array.isArray(attributes)) {
+            for (const [key, val] of Object.entries(attributes)) {
+              const values = extractValues(val);
+              values.forEach(value => {
+                const row = document.createElement('tr');
+                row.appendChild(makeAttrCell(attrRowCounter++));          // id
+                row.appendChild(makeAttrCell(picElIDs[labelIndex] ?? '')); // picElID
+                row.appendChild(makeAttrCell(key));                       // vocabCategory
+                row.appendChild(makeAttrCell(''));                        // vocabCategoryID
+                row.appendChild(makeAttrCell(value));                     // vocabAttribute
+                row.appendChild(makeAttrCell(''));                        // vocabAttributeID
+                row.appendChild(makeAttrCell(''));                        // vocabSpecification
+                row.appendChild(makeAttrCell(''));                        // vocabSpecificationID
+                row.appendChild(makeAttrCell(''));                        // hast_id
+                row.appendChild(makeAttrCell(''));                        // comments
+                pictelAttrBody.appendChild(row);
+              });
+            }
+          }
+          labelIndex++;
+        });
+      });
+    }
+
+    document.getElementById('data-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      const fileInput = document.getElementById('jsonFile');
+      const startId = parseInt(document.getElementById('elementStartId').value, 10) || 1;
+
+      if (!fileInput.files.length) {
+        alert('Bitte eine JSON-Datei auswählen.');
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+
+      reader.onload = function (event) {
+        const jsonData = JSON.parse(event.target.result);
+
+        Promise.all([
+          fetch('_4_illustration__202507040911.csv').then(res => res.text()),
+          fetch('_9_picvocabulary__202507011635.csv').then(res => res.text())
+        ])
+        .then(([csvText, vocabCsvText]) => {
+          const pictureElementBody = document.querySelector('#pictureelement-table tbody');
+          pictureElementBody.innerHTML = '';
+
+          const images = jsonData.images;
+          const csvData = parseCSV(csvText);
+          const vocabData = parseCSV(vocabCsvText);
+
+          const sealMap = {};
+          csvData.forEach(row => {
+            const baseName = normalizeFilename(row.new_filename);
+            sealMap[baseName] = row.seal_id;
+          });
+
+          const classMap = {};
+          vocabData.forEach(row => {
+            const key = row.appellation_preferred?.trim().toLowerCase();
+            if (key) classMap[key] = row.id;
+          });
+
+          images.sort((a, b) => {
+            const nameA = a.image_name?.toLowerCase() ?? '';
+            const nameB = b.image_name?.toLowerCase() ?? '';
+            return nameA.localeCompare(nameB);
+          });
+
+          let picIdCounter = startId;
+          const picElIDs = [];
+
+          images.forEach(image => {
+            const imageKey = normalizeFilename(image.image_name);
+            const sealId = sealMap[imageKey] ?? '—';
+            const labels = image.labels ?? [];
+
+            labels.forEach(label => {
+              const row = document.createElement('tr');
+
+              function makeCell(text) {
+                const cell = document.createElement('td');
+                cell.textContent = text ?? '—';
+                if (cell.textContent === '—') {
+                  cell.classList.add('placeholder');
+                }
+                return cell;
+              }
+
+              const paddedPicId = `pic${String(picIdCounter++).padStart(8, '0')}`;
+              row.appendChild(makeCell(paddedPicId));
+              picElIDs.push(paddedPicId);
+              row.appendChild(makeCell(sealId));
+              row.appendChild(makeCell(label.class_name));
+
+              const classKey = label.class_name?.toLowerCase().trim();
+              const typeClass = classMap[classKey] ?? '—';
+              row.appendChild(makeCell(typeClass));
+              row.appendChild(makeCell(label.id));
+
+              ['bbox', 'polygon', 'mask'].forEach(field => {
+                const val = label[field];
+                const text = Array.isArray(val) ? JSON.stringify(val) : (val ?? '—');
+                row.appendChild(makeCell(text));
+              });
+
+              row.appendChild(makeCell(label.z_index));
+              row.appendChild(makeCell(''));
+
+              pictureElementBody.appendChild(row);
+            });
+          });
+
+          renderPictelAttributesTable(images, picElIDs);
+        })
+        .catch(error => {
+          console.error('Fehler beim Verarbeiten der CSV-Daten:', error);
+        });
+      };
+
+      reader.readAsText(file);
+    });
+  </script>
+
+
+
+</body>
+</html>
