@@ -2,7 +2,9 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Bild-Tabelle mit seal_id</title>
+  <meta name="author" content="Sebastian Hageneuer">
+  <meta name="description" content="JavaScript zur Umwandlung von Hasty Exporten in ein für das KISHIB Vorhaben lesbares Format mit Exportfunktion zum Import in die KISHIB Datenbank.">
+  <title>Hasty-JSON Importer</title>
   <style>
     body { font-family: sans-serif; margin: 2rem; }
     table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
@@ -18,13 +20,16 @@
   </style>
 </head>
 <body>
-  <h1>Hasty JSON Import</h1>
+  <h1>Hasty-JSON Importer</h1>
   <form id="data-form" style="margin-bottom: 2rem;">
     <label for="jsonFile">JSON-Datei auswählen:</label>
     <input type="file" id="jsonFile" accept=".json" required>
     <br><br>
     <label for="elementStartId">Startwert für pictureelement ID:</label>
     <input type="number" id="elementStartId" value="1" min="1" required>
+    <br><br>
+    <label for="attributeStartId">Startwert für pictelattributes ID:</label>
+    <input type="number" id="attributeStartId" value="1" min="1"><br><br>
     <br><br>
     <button type="submit">Verarbeiten</button>
   </form>
@@ -89,68 +94,186 @@
       });
     }
 
+    // CSV-Exportfunktion mit Semikolon als Trennzeichen, ersetzt "-" durch NULL
+    function exportTableToCSV(tableId, filename) {
+      const table = document.getElementById(tableId);
+      if (!table) return;
+
+      const rows = Array.from(table.querySelectorAll('tr'));
+      const csv = rows.map(row =>
+        Array.from(row.querySelectorAll('th, td'))
+          .map(cell => {
+            const text = cell.textContent === '—' ? '' : cell.textContent;
+            return '"' + text.replace(/"/g, '""') + '"';
+          })
+          .join(';')
+      ).join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.setAttribute('href', URL.createObjectURL(blob));
+      link.setAttribute('download', filename + '.csv');
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    // Exportbutton für 3_pictureelement erzeugen
+    function addExportButtonToPictureElement() {
+      const table = document.getElementById('pictureelement-table');
+      if (!table) return;
+
+      const header = document.querySelector('h2:has(+ table#pictureelement-table)');
+      if (!header) return;
+
+      const button = document.createElement('button');
+      button.textContent = 'Export 3_pictureelement';
+      button.style.marginLeft = '1rem';
+      button.onclick = () => exportTableToCSV('pictureelement-table', '3_pictureelement');
+
+      header.appendChild(button);
+    }
+
+    // Exportbutton für 3_pictelattributes erzeugen
+    function addExportButtonToPictelAttributes() {
+      const table = document.getElementById('pictelattributes-table');
+      if (!table) return;
+
+      const header = document.querySelector('h2:has(+ table#pictelattributes-table)');
+      if (!header) return;
+
+      const button = document.createElement('button');
+      button.textContent = 'Export 3_pictelattributes';
+      button.style.marginLeft = '1rem';
+      button.onclick = () => exportTableToCSV('pictelattributes-table', '3_pictelattributes');
+
+      header.appendChild(button);
+    }
+
+    // Begriffskorrektur für vocabCategory
+    function normalizeVocabCategory(rawCategory) {
+      const replacements = {
+        'rank': { category: 'pictorial rank', comments: 'Hasty-JSON Importer: was "rank" before.' },
+        'personal attributes': { category: 'personal attribute', comments: 'Hasty-JSON Importer: was "personal attributes" before.' },
+        'face orientation': { category: 'orientation', specification: 'face', comments: 'Hasty-JSON Importer: was "face orientation" before. Added column vocabSpecification' },
+        'body orientation': { category: 'orientation', specification: 'body', comments: 'Hasty-JSON Importer: was "body orientation" before. Added column vocabSpecification' },
+        'inscription orientation': { category: 'orientation', specification: 'inscription', comments: 'Hasty-JSON Importer: was "inscription orientation" before. Added column vocabSpecification' },
+        'inscription framing': { category: 'framing', specification: 'inscription', comments: 'Hasty-JSON Importer: was "inscription framing" before. Added column vocabSpecification' },
+        // Weitere Ersetzungen hier ergänzen
+      };
+
+      const cleaned = rawCategory?.toString().trim().toLowerCase();
+      const foundKey = Object.keys(replacements).find(key => key.toLowerCase() === cleaned);
+
+      if (foundKey) {
+        return replacements[foundKey];
+      } else {
+        return { category: rawCategory?.trim(), specification: '' };
+      }
+    }
+
     // Neue Tabelle: pictelattributes
-    function renderPictelAttributesTable(images, picElIDs) {
-      const pictelAttrBody = document.querySelector('#pictelattributes-table tbody');
-      if (!pictelAttrBody) return;
-      pictelAttrBody.innerHTML = '';
+    function renderPictelAttributesTable(images, picElIDs, attrStartId = 1, vocabData = [], vocabCatData = []) {
+    const pictelAttrBody = document.querySelector('#pictelattributes-table tbody');
+    if (!pictelAttrBody) return;
+    pictelAttrBody.innerHTML = '';
 
-      let attrRowCounter = 1;
+    let attrRowCounter = attrStartId;
 
-      function extractValues(val) {
-        if (Array.isArray(val)) {
-          return val.map(v => typeof v === 'string' ? v.trim() : JSON.stringify(v));
-        } else if (typeof val === 'string') {
-          return [val.trim()];
-        } else if (val !== null && val !== undefined) {
-          return [val.toString()];
-        } else {
-          return [];
-        }
+    const vocabMap = {};
+    vocabData.forEach(row => {
+      const key = row.appellation_preferred?.trim().toLowerCase();
+      if (key) vocabMap[key] = row.id;
+    });
+
+    const vocabCatMap = {};
+    vocabCatData.forEach(row => {
+      const key = row.appellation_preferred?.trim().toLowerCase();
+      if (key) vocabCatMap[key] = row.id;
+    });
+
+    function extractValues(val) {
+      if (Array.isArray(val)) {
+        return val.map(v => typeof v === 'string' ? v.trim() : JSON.stringify(v));
+      } else if (typeof val === 'string') {
+        return [val.trim()];
+      } else if (val !== null && val !== undefined) {
+        return [val.toString()];
+      } else {
+        return [];
       }
+    }
 
-      function makeAttrCell(content) {
-        const cell = document.createElement('td');
-        cell.textContent = content ?? '—';
-        if (cell.textContent === '—') {
-          cell.classList.add('placeholder');
-        }
-        return cell;
+    function makeAttrCell(content) {
+      const cell = document.createElement('td');
+      cell.textContent = content ?? '—';
+      if (cell.textContent === '—') {
+        cell.classList.add('placeholder');
       }
+      return cell;
+    }
 
-      let labelIndex = 0;
-      images.forEach(image => {
-        image.labels?.forEach(label => {
-          const attributes = label.attributes;
+    let labelIndex = 0;
+    images.forEach(image => {
+      image.labels?.forEach(label => {
+        const attributes = label.attributes;
 
-          if (typeof attributes === 'object' && !Array.isArray(attributes)) {
-            for (const [key, val] of Object.entries(attributes)) {
-              const values = extractValues(val);
-              values.forEach(value => {
-                const row = document.createElement('tr');
-                row.appendChild(makeAttrCell(attrRowCounter++));          // id
-                row.appendChild(makeAttrCell(picElIDs[labelIndex] ?? '')); // picElID
-                row.appendChild(makeAttrCell(key));                       // vocabCategory
-                row.appendChild(makeAttrCell(''));                        // vocabCategoryID
-                row.appendChild(makeAttrCell(value));                     // vocabAttribute
-                row.appendChild(makeAttrCell(''));                        // vocabAttributeID
-                row.appendChild(makeAttrCell(''));                        // vocabSpecification
-                row.appendChild(makeAttrCell(''));                        // vocabSpecificationID
-                row.appendChild(makeAttrCell(''));                        // hast_id
-                row.appendChild(makeAttrCell(''));                        // comments
-                pictelAttrBody.appendChild(row);
-              });
-            }
+        if (typeof attributes === 'object' && !Array.isArray(attributes)) {
+          for (const [key, val] of Object.entries(attributes)) {
+            const values = extractValues(val);
+            values.forEach(value => {
+              const row = document.createElement('tr');
+              const paddedAttrId = `picAtt${String(attrRowCounter++).padStart(8, '0')}`;
+              row.appendChild(makeAttrCell(paddedAttrId));                       // id
+
+              row.appendChild(makeAttrCell(picElIDs[labelIndex] ?? ''));         // picElID
+
+              const normalized = normalizeVocabCategory(key);
+              row.appendChild(makeAttrCell(normalized.category));                // vocabCategory
+
+              const catKey = normalized.category?.toString().trim().toLowerCase();
+              const catId = vocabCatMap[catKey] ?? '—';
+              const catIdCell = document.createElement('td');
+              catIdCell.textContent = catId;
+              if (catId === '—') catIdCell.classList.add('placeholder');
+              row.appendChild(catIdCell);                                        // vocabCategoryID
+
+              row.appendChild(makeAttrCell(value));                              // vocabAttribute
+
+              const vocabKey = value?.toString().trim().toLowerCase();
+              const vocabId = vocabMap[vocabKey] ?? '—';
+              const vocabIdCell = document.createElement('td');
+              vocabIdCell.textContent = vocabId;
+              if (vocabId === '—') vocabIdCell.classList.add('placeholder');
+              row.appendChild(vocabIdCell);                                      // vocabAttributeID
+
+              row.appendChild(makeAttrCell(normalized.specification || '—'));    // vocabSpecification
+
+              const specKey = normalized.specification?.toString().trim().toLowerCase();
+              const specId = vocabMap[specKey] ?? '—';
+              const specIdCell = document.createElement('td');
+              specIdCell.textContent = specId;
+              if (specId === '—') specIdCell.classList.add('placeholder');
+              row.appendChild(specIdCell);                                       // vocabSpecificationID
+
+              row.appendChild(makeAttrCell(''));                                 // hast_id
+
+              row.appendChild(makeAttrCell(normalized.comments || '—'));         // comments
+              pictelAttrBody.appendChild(row);
+            });
           }
-          labelIndex++;
-        });
+        }
+        labelIndex++;
       });
+    });
     }
 
     document.getElementById('data-form').addEventListener('submit', function (e) {
       e.preventDefault();
       const fileInput = document.getElementById('jsonFile');
       const startId = parseInt(document.getElementById('elementStartId').value, 10) || 1;
+      const attrStartId = parseInt(document.getElementById('attributeStartId').value, 10) || 1;
 
       if (!fileInput.files.length) {
         alert('Bitte eine JSON-Datei auswählen.');
@@ -165,15 +288,17 @@
 
         Promise.all([
           fetch('_4_illustration__202507040911.csv').then(res => res.text()),
-          fetch('_9_picvocabulary__202507011635.csv').then(res => res.text())
+          fetch('_9_picvocabulary__202507011635.csv').then(res => res.text()),
+          fetch('_9_picvocabcategory__202507011635.csv').then(res => res.text())
         ])
-        .then(([csvText, vocabCsvText]) => {
+        .then(([csvText, vocabCsvText, vocabCatCsvText]) => {
           const pictureElementBody = document.querySelector('#pictureelement-table tbody');
           pictureElementBody.innerHTML = '';
 
           const images = jsonData.images;
           const csvData = parseCSV(csvText);
           const vocabData = parseCSV(vocabCsvText);
+          const vocabCatData = parseCSV(vocabCatCsvText);
 
           const sealMap = {};
           csvData.forEach(row => {
@@ -236,8 +361,9 @@
               pictureElementBody.appendChild(row);
             });
           });
-
-          renderPictelAttributesTable(images, picElIDs);
+          addExportButtonToPictureElement();
+          renderPictelAttributesTable(images, picElIDs, attrStartId, vocabData, vocabCatData);
+          addExportButtonToPictelAttributes();
         })
         .catch(error => {
           console.error('Fehler beim Verarbeiten der CSV-Daten:', error);
@@ -247,8 +373,5 @@
       reader.readAsText(file);
     });
   </script>
-
-
-
 </body>
 </html>
