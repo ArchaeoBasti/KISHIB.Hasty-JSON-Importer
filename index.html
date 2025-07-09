@@ -4,10 +4,11 @@
   <meta charset="UTF-8">
   <meta name="author" content="Sebastian Hageneuer">
   <meta name="description" content="JavaScript zur Umwandlung von Hasty Exporten in ein für das KISHIB Vorhaben lesbares Format mit Exportfunktion zum Import in die KISHIB Datenbank.">
-  <title>Hasty-JSON Importer</title>
+  <title>KIŠIB.Hasty-JSON Importer</title>
   <style>
-    body { font-family: sans-serif; margin: 2rem; }
+    body { font-family: sans-serif; }
     table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    form { border: 1px #000 solid; margin: 2rem; padding: 1rem;}
     th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
     th { background-color: #f0f0f0; }
 
@@ -20,22 +21,34 @@
   </style>
 </head>
 <body>
-  <h1>Hasty-JSON Importer</h1>
+  <header style="background-color: #6b7b8d; color: white; padding: 1rem; text-align: center; font-size: 1.5rem;">
+    KIŠIB.Hasty-JSON Importer
+  </header>
   <form id="data-form" style="margin-bottom: 2rem;">
-    <label for="jsonFile">JSON-Datei auswählen:</label>
-    <input type="file" id="jsonFile" accept=".json" required>
-    <br><br>
-    <label for="elementStartId">Startwert für pictureelement ID:</label>
-    <input type="number" id="elementStartId" value="1" min="1" required>
-    <br><br>
-    <label for="attributeStartId">Startwert für pictelattributes ID:</label>
-    <input type="number" id="attributeStartId" value="1" min="1"><br><br>
-    <br><br>
-    <button type="submit">Verarbeiten</button>
+    <table>
+      <tr>
+        <td>
+          <label for="jsonFile">JSON-Datei auswählen:</label>
+          <input type="file" id="jsonFile" accept=".json" required>
+        </td>
+        <td>
+          <label for="elementStartId">Startwert für pictureelement ID:</label>
+          <input type="number" id="elementStartId" value="1" min="1" required>
+        </td>
+        <td>
+          <label for="attributeStartId">Startwert für pictelattributes ID:</label>
+          <input type="number" id="attributeStartId" value="1" min="1">
+        </td>
+      </tr>
+      <tr>
+        <td colspan=3>
+          <button type="submit">Verarbeiten</button>
+        </td>
+      </tr>
+    </table>
   </form>
   <hr>
-  <hr>
-  <h2>3_pictureelement</h2>
+  <h2>🖼️ Tabelle: <i>3_pictureelement</i></h2>
   <table id="pictureelement-table">
     <thead>
       <tr>
@@ -54,7 +67,7 @@
     <tbody></tbody>
   </table>
 
-  <h2>3_pictelattributes</h2>
+  <h2>🧩 Tabelle: <i>3_pictelattributes</i></h2>
   <table id="pictelattributes-table">
     <thead>
       <tr>
@@ -173,6 +186,26 @@
       }
     }
 
+    // Begriffskorrektur für class_name
+    function normalizeClassName(rawClass) {
+      const replacements = {
+        'lion-griffin': { class: 'lion-dragon' },
+        'omega symbol': { class: 'omega-symbol'},
+        'person': { class: 'human being'},
+        'unclassified': { class: 'undetermined' },
+        // Weitere Ersetzungen hier ergänzen
+      };
+
+      const cleaned = rawClass?.toString().trim().toLowerCase();
+      const foundKey = Object.keys(replacements).find(key => key.toLowerCase() === cleaned);
+
+      if (foundKey) {
+        return replacements[foundKey].class;
+      } else {
+        return rawClass?.trim();
+      }
+    }
+
     // Neue Tabelle: pictelattributes
     function renderPictelAttributesTable(images, picElIDs, attrStartId = 1, vocabData = [], vocabCatData = []) {
     const pictelAttrBody = document.querySelector('#pictelattributes-table tbody');
@@ -288,7 +321,7 @@
 
         Promise.all([
           fetch('_4_illustration__202507040911.csv').then(res => res.text()),
-          fetch('_9_picvocabulary__202507011635.csv').then(res => res.text()),
+          fetch('_9_picvocabulary__202507091642.csv').then(res => res.text()),
           fetch('_9_picvocabcategory__202507011635.csv').then(res => res.text())
         ])
         .then(([csvText, vocabCsvText, vocabCatCsvText]) => {
@@ -342,9 +375,11 @@
               row.appendChild(makeCell(paddedPicId));
               picElIDs.push(paddedPicId);
               row.appendChild(makeCell(sealId));
-              row.appendChild(makeCell(label.class_name));
+              const normalizedClass = normalizeClassName(label.class_name);
+              row.appendChild(makeCell(normalizedClass));
 
-              const classKey = label.class_name?.toLowerCase().trim();
+
+              const classKey = normalizedClass?.toLowerCase();
               const typeClass = classMap[classKey] ?? '—';
               row.appendChild(makeCell(typeClass));
               row.appendChild(makeCell(label.id));
