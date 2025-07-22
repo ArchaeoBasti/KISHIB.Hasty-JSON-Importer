@@ -14,15 +14,16 @@
 
     /* HIER: Zellen mit Platzhalter farbig hervorheben */
     td.placeholder {
-      background-color: #ffe5e5; /* hellrot */
-      color: #900;               /* dunkler Text */
+      background-color: #ffe5e5;                                                  /* hellrot */
+      color: #900;                                                                /* dunkler Text */
+      font-weight: bold;
       font-style: italic;
     }
   </style>
 </head>
 <body>
   <header style="background-color: #6b7b8d; color: white; padding: 1rem; text-align: center; font-size: 1.5rem;">
-    KIŠIB.Hasty-JSON Importer
+    𒈩 KIŠIB.Hasty-JSON Importer
   </header>
   <form id="data-form" style="margin-bottom: 2rem;">
     <table>
@@ -169,6 +170,7 @@
       const replacements = {
         'rank': { category: 'pictorial rank', comments: 'Hasty-JSON Importer: was "rank" before.' },
         'personal attributes': { category: 'personal attribute', comments: 'Hasty-JSON Importer: was "personal attributes" before.' },
+        'grasping wrist_leading so.': { category: 'grasping wrist_leading someone', comments: 'Hasty-JSON Importer: was "grasping wrist_leading so." before.' },
         'face orientation': { category: 'orientation', specification: 'face', comments: 'Hasty-JSON Importer: was "face orientation" before. Added column vocabSpecification' },
         'body orientation': { category: 'orientation', specification: 'body', comments: 'Hasty-JSON Importer: was "body orientation" before. Added column vocabSpecification' },
         'inscription orientation': { category: 'orientation', specification: 'inscription', comments: 'Hasty-JSON Importer: was "inscription orientation" before. Added column vocabSpecification' },
@@ -193,6 +195,7 @@
         'omega symbol': { class: 'omega-symbol'},
         'person': { class: 'human being'},
         'unclassified': { class: 'undetermined' },
+        'vessel_with straw(s)': { class: 'vessel with straw(s)' },
         // Weitere Ersetzungen hier ergänzen
       };
 
@@ -203,6 +206,25 @@
         return replacements[foundKey].class;
       } else {
         return rawClass?.trim();
+      }
+    }
+
+    // Begriffskorrektur für vocab_Attribute
+    function normalizeVocabAttribute(rawValue) {
+      const replacements = {
+        'crested cap or spiky hair': { attribute: 'spiky hair', comment: 'Hasty-JSON Importer: was "crested cap or spiky hair" before.' },
+        'grasping wrist_leading so.': { attribute: 'grasping wrist_leading someone', comment: 'Hasty-JSON Importer: was "grasping wrist_leading so." before.' },
+        'quivers': { attribute: 'quiver', comment: 'Hasty-JSON Importer: was "quivers" before.' },
+        // Weitere Ersetzungen hier
+      };
+
+      const cleaned = rawValue?.toString().trim().toLowerCase();
+      const foundKey = Object.keys(replacements).find(key => key.toLowerCase() === cleaned);
+
+      if (foundKey) {
+        return replacements[foundKey];
+      } else {
+        return { attribute: rawValue?.trim(), comment: '' };
       }
     }
 
@@ -241,7 +263,7 @@
     function makeAttrCell(content) {
       const cell = document.createElement('td');
       cell.textContent = content ?? '—';
-      if (cell.textContent === '—') {
+      if (cell.textContent === '—' || cell.textContent.toLowerCase() === 'null') {
         cell.classList.add('placeholder');
       }
       return cell;
@@ -272,9 +294,10 @@
               if (catId === '—') catIdCell.classList.add('placeholder');
               row.appendChild(catIdCell);                                        // vocabCategoryID
 
-              row.appendChild(makeAttrCell(value));                              // vocabAttribute
+              const normalizedAttr = normalizeVocabAttribute(value);
+              row.appendChild(makeAttrCell(normalizedAttr.attribute));           // vocabAttribute
 
-              const vocabKey = value?.toString().trim().toLowerCase();
+              const vocabKey = normalizedAttr.attribute?.toString().trim().toLowerCase();
               const vocabId = vocabMap[vocabKey] ?? '—';
               const vocabIdCell = document.createElement('td');
               vocabIdCell.textContent = vocabId;
@@ -292,7 +315,8 @@
 
               row.appendChild(makeAttrCell(''));                                 // hast_id
 
-              row.appendChild(makeAttrCell(normalized.comments || '—'));         // comments
+              const comment = normalized.comment || normalizedAttr.comment || '—';
+              row.appendChild(makeAttrCell(comment)); // comments
               pictelAttrBody.appendChild(row);
             });
           }
@@ -365,7 +389,7 @@
               function makeCell(text) {
                 const cell = document.createElement('td');
                 cell.textContent = text ?? '—';
-                if (cell.textContent === '—') {
+                if (cell.textContent === '—' || cell.textContent.toLowerCase() === 'null') {
                   cell.classList.add('placeholder');
                 }
                 return cell;
